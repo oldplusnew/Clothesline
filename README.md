@@ -129,6 +129,16 @@ dotnet publish Clothesline.csproj -c Release -r win-x64 --self-contained true \
 | `Settings.cs` | 设置持久化（`%APPDATA%\Clothesline\settings.json`） |
 | `Diag.cs` | 日志落盘（`%APPDATA%\Clothesline\log.txt`），排障用 |
 
+## 支持作者
+
+Clothesline **永久免费**：源码开放、无广告、无账号、不联网。个人用、公司用，都不必付费。
+
+如果它确实替你省了事，可以扫下面这张码请我喝杯茶：
+
+<img src="docs/alipay.png" alt="支付宝收款码（Oldplusnew）" width="240">
+
+> 打赏完全自愿。它不会解锁任何功能——所有功能本来就都给你；也不换来"优先处理"，issue 一视同仁地看。
+
 ## 许可
 
 [MIT](LICENSE) —— 含 Tendedero 原作者 Alejandro Buján 的原始版权声明。名称与图标不在 MIT 范围内，见 LICENSE 末尾说明。
