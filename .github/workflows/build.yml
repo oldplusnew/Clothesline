@@ -6,6 +6,10 @@ on:
     tags: [ 'v*' ]
   workflow_dispatch:
 
+# 打 tag 时要创建 Release 并上传 exe，必须显式授予写权限
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
