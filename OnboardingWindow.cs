@@ -101,7 +101,7 @@ internal sealed class OnboardingWindow : Window
         });
 
         body.Children.Add(Step("1", "鼠标推到屏幕最上沿", "绳子就会滑下来。也可以按 Ctrl+Alt+T，或左键单击托盘里的晾衣夹图标固定。"));
-        body.Children.Add(Step("2", "截图会自动挂上去", "用 Win+PrtScn 截屏、或用系统录屏，成品一落地就挂上绳子（也支持右键「挂到晾衣绳」）。"));
+        body.Children.Add(Step("2", "截图会自动挂上去", "用 Win+PrtScn 截屏、或用系统录屏，成品一落地就挂上绳子。想挂旧图：右键它选「挂到晾衣绳」，或托盘右键「挂张图片…」。"));
         body.Children.Add(Step("3", "单击复制 · 双击打开", "按住拖出去可发给微信、Word；鼠标停在卡片上会出现 \u2715，点了丢进回收站。"));
 
         // 试一试
@@ -142,7 +142,7 @@ internal sealed class OnboardingWindow : Window
         var foot = new StackPanel();
         foot.Children.Add(new TextBlock
         {
-            Text = "随时可以在托盘图标上点右键 →「使用说明」重看这一页。",
+            Text = "提示：Win11 的右键菜单默认精简，「挂到晾衣绳」在「显示更多选项」里（或按 Shift+F10）。随时可在托盘图标上点右键 →「使用说明」重看这一页。",
             FontSize = 12,
             Foreground = new SolidColorBrush(Muted),
             TextWrapping = TextWrapping.Wrap,

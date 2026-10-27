@@ -31,6 +31,7 @@ internal sealed class LineWindow : Window
     private Grid _root = null!;
     private StackPanel _row = null!;
     private System.Windows.Shapes.Path _line = null!;
+    private Border _dropHint = null!;
 
     private IntPtr _hwnd;
     private uint _taskbarCreated;
@@ -38,7 +39,7 @@ internal sealed class LineWindow : Window
     private uint _exclClipFmt;
     private long _suppressClipboardUntil;
     private (DateTime t, int w, int h)? _lastFileItem;
-    private DispatcherTimer? _hideTimer, _peekTimer, _breezeTimer;
+    private DispatcherTimer? _hideTimer, _peekTimer, _breezeTimer, _dragGuard;
 
     public bool IsPinned => _pinned;
 
@@ -62,6 +63,7 @@ internal sealed class LineWindow : Window
         Top = 0;
 
         BuildVisual();
+        HookDrop();
         _slide.Y = -StripH; // 收起
 
         _hideTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(450) };
@@ -110,7 +112,83 @@ internal sealed class LineWindow : Window
         };
         _root.Children.Add(_row);
 
+        // 拖放时的提示：只在有文件拖到绳上时出现
+        _dropHint = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0xD8, 0x3A, 0x33, 0x2A)),
+            CornerRadius = new CornerRadius(11),
+            Padding = new Thickness(14, 6, 14, 6),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 92, 0, 0),
+            Visibility = Visibility.Collapsed,
+            IsHitTestVisible = false,
+            Child = new TextBlock
+            {
+                Text = "松手，挂到绳上",
+                FontSize = 12,
+                Foreground = Brushes.White,
+            },
+        };
+        _root.Children.Add(_dropHint);
+
         Content = _root;
+    }
+
+    /// <summary>把「拖文件到绳上」接住：支持资源管理器的文件，也支持从网页拖来的位图。</summary>
+    private void HookDrop()
+    {
+        AllowDrop = true;
+        _root.AllowDrop = true;
+        _root.DragEnter += (_, e) => OnDragOver(e);
+        _root.DragOver += (_, e) => OnDragOver(e);
+        _root.DragLeave += (_, _) => _dropHint.Visibility = Visibility.Collapsed;
+        _root.Drop += OnDrop;
+    }
+
+    private void OnDragOver(DragEventArgs e)
+    {
+        bool ok = e.Data.GetDataPresent(DataFormats.FileDrop) || e.Data.GetDataPresent(DataFormats.Bitmap);
+        e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+        if (!ok) return;
+
+        _dragGuard?.Stop();        // 真的在拖文件，取消自动收回
+        if (!_shown) ShowLine();   // 拖到顶部时绳子可能还没落下，这里补一次
+        _hideTimer.Stop();
+        _dropHint.Visibility = Visibility.Visible;
+    }
+
+    private void OnDrop(object sender, DragEventArgs e)
+    {
+        _dropHint.Visibility = Visibility.Collapsed;
+        e.Handled = true;
+        try
+        {
+            if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0)
+            {
+                HangPaths(files);
+            }
+            else if (e.Data.GetData(DataFormats.Bitmap) is BitmapSource bmp)
+            {
+                HangPaths(new[] { SaveDroppedBitmap(bmp) });
+            }
+        }
+        catch (Exception ex) { Diag.Log("拖放挂载失败：" + ex.Message); }
+    }
+
+    /// <summary>网页里拖来的位图没有源文件，先落盘再当普通图片挂。</summary>
+    private static string SaveDroppedBitmap(BitmapSource bmp)
+    {
+        string dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clothesline", "Hang");
+        Directory.CreateDirectory(dir);
+        string path = Path.Combine(dir, $"drop_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(bmp));
+        using (var fs = File.Create(path)) enc.Save(fs);
+        Diag.Log("拖入的位图已存为 " + path);
+        return path;
     }
 
     private void DrawLine()
@@ -199,11 +277,38 @@ internal sealed class LineWindow : Window
     private void OnGlobalMouse(int x, int y)
     {
         if (_shown || _pinned) return;
-        if (y > 2) return; // 未触顶
+
+        // 平时要真正触顶(y<=2)才唤出；但"按住左键往上传文件"这个动作很难正好压在 2px 里，
+        // 所以拖拽状态下把判定放宽到 40px —— 拖到屏幕顶部附近绳子就滑下来接住。
+        bool dragging = (Native.GetKeyState(Native.VK_LBUTTON) & 0x8000) != 0;
+        int trigger = dragging ? 40 : 2;
+        if (y > trigger) return;
+
         int w = Native.GetSystemMetrics(0);
         if (x < 0 || x > w) return; // 只管主屏
         if (IsForegroundFullscreen()) return;
-        Dispatcher.BeginInvoke(() => { if (!_shown && !_pinned) ShowLine(); });
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_shown || _pinned) return;
+            ShowLine();
+            if (dragging) ArmDragIdleGuard(); // 万一只是在上边缘拖选文字，1.5 秒内没文件进来就收回
+        });
+    }
+
+    /// <summary>因拖拽而露出的绳子，若迟迟没有文件拖进来（不是真的在拖文件），自动收回。</summary>
+    private void ArmDragIdleGuard()
+    {
+        _dragGuard ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+        _dragGuard.Stop();
+        _dragGuard.Tick -= OnDragGuardTick;
+        _dragGuard.Tick += OnDragGuardTick;
+        _dragGuard.Start();
+    }
+
+    private void OnDragGuardTick(object? sender, EventArgs e)
+    {
+        _dragGuard?.Stop();
+        if (_dropHint.Visibility != Visibility.Visible && !_pinned && _shown) HideLine();
     }
 
     private static bool IsForegroundFullscreen()

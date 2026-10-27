@@ -119,6 +119,7 @@ internal sealed class TrayIcon : IDisposable
         IntPtr menu = Native.CreatePopupMenu();
         _ = Native.AppendMenu(menu, Native.MF_STRING, 101, (_win.IsPinned ? "收起晾绳" : "放下晾绳") + "\tCtrl+Alt+T");
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
+        _ = Native.AppendMenu(menu, Native.MF_STRING, 108, "挂张图片…（选择文件）");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.ContextMenuEnabled ? Native.MF_CHECKED : 0), 106, "图片右键菜单：挂到晾衣绳");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.HangCopiedImages ? Native.MF_CHECKED : 0), 102, "挂起复制的图像");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.RunAtStartup ? Native.MF_CHECKED : 0), 103, "开机自动启动");
@@ -150,6 +151,7 @@ internal sealed class TrayIcon : IDisposable
                 ShellMenu.Apply(_settings.ContextMenuEnabled);
                 break;
             case 107: OnboardingWindow.ShowFor(_win, _settings); break;
+            case 108: PickFiles(); break;
         }
     }
 
@@ -174,6 +176,24 @@ internal sealed class TrayIcon : IDisposable
                 key.DeleteValue("Clothesline", false);
         }
         catch (Exception e) { Diag.Log("开机自启设置失败 " + e.Message); }
+    }
+
+    /// <summary>托盘菜单「挂张图片…」：直接在系统文件对话框里挑，不依赖资源管理器右键。</summary>
+    private void PickFiles()
+    {
+        try
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "选择要挂到晾衣绳的图片或视频",
+                Filter = "图片和视频|*.jpg;*.jpeg;*.png;*.gif;*.bmp;*.webp;*.heic;*.tif;*.tiff;*.mp4;*.mov;*.mkv;*.avi;*.wmv;*.webm|所有文件|*.*",
+                Multiselect = true,
+                CheckFileExists = true,
+            };
+            bool? ok = dlg.ShowDialog();
+            if (ok == true && dlg.FileNames.Length > 0) _win.HangPaths(dlg.FileNames);
+        }
+        catch (Exception e) { Diag.Log("选择文件失败 " + e.Message); }
     }
 
     private static void OpenScreenshotsFolder()

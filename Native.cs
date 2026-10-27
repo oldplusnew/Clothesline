@@ -143,6 +143,18 @@ internal static class Native
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     public static extern uint RegisterWindowMessage(string lpString);
 
+    /// <summary>通知外壳"文件关联变了"，让新建的右键菜单项立刻生效（免重启资源管理器）。</summary>
+    [DllImport("shell32.dll")]
+    public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+
+    public const int SHCNE_ASSOCCHANGED = 0x08000000;
+    public const uint SHCNF_IDLIST = 0x0000;
+
+    [DllImport("user32.dll")]
+    public static extern short GetKeyState(int nVirtKey);
+
+    public const int VK_LBUTTON = 0x01;
+
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr hIcon);
 
