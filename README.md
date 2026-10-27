@@ -78,7 +78,7 @@
 
 ## 安装
 
-到 [Releases](../../releases/latest) 下载 `Clothesline.exe`，双击即可运行。
+到 [Releases](https://github.com/oldplusnew/Clothesline/releases/latest) 下载 `Clothesline.exe`，双击即可运行。
 
 - 单文件、自包含（约 63 MB），**不需要安装 .NET**
 - 无安装程序、不写系统目录、不注册服务；设置存于 `%APPDATA%\Clothesline\settings.json`
