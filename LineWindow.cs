@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -32,10 +33,15 @@ internal sealed class LineWindow : Window
     private StackPanel _row = null!;
     private System.Windows.Shapes.Path _line = null!;
     private Border _dropHint = null!;
+    private Border _pinBtn = null!;
+    private Ellipse _pinHead = null!;
+    private System.Windows.Shapes.Path _pinBody = null!;
 
     private IntPtr _hwnd;
     private uint _taskbarCreated;
     private bool _pinned, _shown;
+    /// <summary>常驻模式下，鼠标此刻是否在绳区（在就不穿透，好让人点图和图钉）。</summary>
+    private bool _stripInteractive;
     private uint _exclClipFmt;
     private long _suppressClipboardUntil;
     private (DateTime t, int w, int h)? _lastFileItem;
@@ -72,7 +78,7 @@ internal sealed class LineWindow : Window
         MouseEnter += (_, _) => _hideTimer.Stop();
         MouseLeave += (_, _) => { if (_shown && !_pinned) _hideTimer.Start(); };
 
-        Loaded += (_, _) => DrawLine();
+        Loaded += (_, _) => { DrawLine(); ApplyPinnedFromSettings(); };
         SourceInitialized += OnSourceInitialized;
     }
 
@@ -131,8 +137,71 @@ internal sealed class LineWindow : Window
             },
         };
         _root.Children.Add(_dropHint);
+        BuildPinButton();
 
         Content = _root;
+    }
+
+    /// <summary>绳子右端下方的图钉按钮：按下把晾绳固定在桌面，再按一次收起。</summary>
+    private void BuildPinButton()
+    {
+        var body = new StreamGeometry();
+        using (var ctx = body.Open())
+        {
+            ctx.BeginFigure(new Point(8.4, 12.6), isFilled: true, isClosed: true);
+            ctx.LineTo(new Point(13.6, 12.6), isStroked: true, isSmoothJoin: false);
+            ctx.LineTo(new Point(11, 21.6), isStroked: true, isSmoothJoin: false);
+        }
+        body.Freeze();
+
+        _pinHead = new Ellipse
+        {
+            Width = 12, Height = 12,
+            StrokeThickness = 1.2,
+            Stroke = new SolidColorBrush(Colors.White),
+        };
+        Canvas.SetLeft(_pinHead, 5);
+        Canvas.SetTop(_pinHead, 1.5);
+
+        _pinBody = new System.Windows.Shapes.Path
+        {
+            Data = body,
+            StrokeThickness = 1,
+            Stroke = new SolidColorBrush(Colors.White),
+            StrokeLineJoin = PenLineJoin.Round,
+        };
+
+        var canvas = new Canvas { Width = 22, Height = 23 };
+        canvas.Children.Add(_pinBody);
+        canvas.Children.Add(_pinHead);
+
+        _pinBtn = new Border
+        {
+            Width = 26,
+            Height = 26,
+            CornerRadius = new CornerRadius(13),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            // 刻意不放在右上角：那儿正是最大化窗口「关闭」按钮的位置，会挡住红叉。
+            // 挪到绳子下方（y≈40），避开顶部标题栏那条危险带，又还挨着绳子。
+            Margin = new Thickness(0, 40, 16, 0),
+            Cursor = Cursors.Hand,
+            Child = canvas,
+        };
+        _pinBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; SetPinned(!_pinned); };
+        _root.Children.Add(_pinBtn);
+        UpdatePinVisual();
+    }
+
+    /// <summary>图钉的外观跟着固定状态走：灰色=会自己收起，橙色=已固定在桌面。</summary>
+    private void UpdatePinVisual()
+    {
+        var ink = new SolidColorBrush(_pinned ? Color.FromRgb(0xE8, 0x96, 0x54) : Color.FromRgb(0x8A, 0x8A, 0x8A));
+        _pinHead.Fill = ink;
+        _pinBody.Fill = ink;
+        _pinBtn.Background = new SolidColorBrush(_pinned
+            ? Color.FromArgb(0xEC, 0xFF, 0xF3, 0xE4)
+            : Color.FromArgb(0x96, 0xFF, 0xFF, 0xFF));
     }
 
     /// <summary>把「拖文件到绳上」接住：支持资源管理器的文件，也支持从网页拖来的位图。</summary>
@@ -276,7 +345,20 @@ internal sealed class LineWindow : Window
 
     private void OnGlobalMouse(int x, int y)
     {
-        if (_shown || _pinned) return;
+        // 常驻模式：鼠标进绳区就取消穿透（好点图和图钉），离开绳区就恢复穿透。
+        // 这样绳子一直挂在那儿，也不会挡住屏幕顶部本来要点的东西。
+        if (_pinned)
+        {
+            bool inside = IsPointInStrip(x, y);
+            if (inside != _stripInteractive)
+            {
+                _stripInteractive = inside;
+                SetClickThrough(!inside);
+            }
+            return;
+        }
+
+        if (_shown) return;
 
         // 平时要真正触顶(y<=2)才唤出；但"按住左键往上传文件"这个动作很难正好压在 2px 里，
         // 所以拖拽状态下把判定放宽到 40px —— 拖到屏幕顶部附近绳子就滑下来接住。
@@ -348,19 +430,60 @@ internal sealed class LineWindow : Window
         _slide.BeginAnimation(TranslateTransform.YProperty, a);
     }
 
-    public void TogglePin()
+    public void TogglePin() => SetPinned(!_pinned);
+
+    /// <summary>
+    /// 把晾绳固定在桌面（true）/ 取消固定并收起（false）。
+    /// 这个状态会写进设置，下次启动照旧——想要"永远挂着"的人不用每次重新按。
+    /// </summary>
+    public void SetPinned(bool on)
     {
-        if (_pinned)
+        if (on == _pinned)
         {
-            _pinned = false;
-            _hideTimer.Stop();
-            if (_shown) HideLine();
+            if (on && !_shown) { ShowLine(); _stripInteractive = true; SetClickThrough(false); }
+            return;
+        }
+
+        _pinned = on;
+        _settings.PinnedToDesktop = on;
+        _settings.Save();
+        _hideTimer.Stop();
+        _peekTimer?.Stop();
+
+        if (on)
+        {
+            ShowLine();
+            _stripInteractive = true;
+            SetClickThrough(false);
         }
         else
         {
-            _pinned = true;
-            if (!_shown) ShowLine();
+            SetClickThrough(true); // 收起前先穿透，免得滑动途中还挡着下面
+            HideLine();
         }
+
+        UpdatePinVisual();
+        _tray?.SetCount(_items.Count); // 托盘提示里的"（已固定）"跟着变
+        Diag.Log(on ? "晾绳：已固定在桌面（下次启动仍是）" : "晾绳：取消固定，恢复自动收起");
+    }
+
+    /// <summary>启动时若上次是固定状态，直接挂出来。</summary>
+    private void ApplyPinnedFromSettings()
+    {
+        if (!_settings.PinnedToDesktop) return;
+        _pinned = true;
+        _stripInteractive = true;
+        ShowLine();
+        SetClickThrough(false);
+        UpdatePinVisual();
+        Diag.Log("晾绳：按上次的设置，启动即固定在桌面");
+    }
+
+    /// <summary>屏幕坐标（物理像素）是否落在绳区里。</summary>
+    private bool IsPointInStrip(int x, int y)
+    {
+        double scale = _hwnd != IntPtr.Zero ? Native.GetDpiForWindow(_hwnd) / 96.0 : 1.0;
+        return x >= 0 && x <= Width * scale && y >= 0 && y <= StripH * scale;
     }
 
     /// <summary>滑下绳子并保持若干秒后自动收起（给说明窗"试一试"和右键菜单用）。</summary>
@@ -418,8 +541,7 @@ internal sealed class LineWindow : Window
     private bool IsMouseInsideStrip()
     {
         if (!Native.GetCursorPos(out var p)) return true;
-        double scale = _hwnd != IntPtr.Zero ? Native.GetDpiForWindow(_hwnd) / 96.0 : 1.0;
-        return p.X >= 0 && p.X <= Width * scale && p.Y >= 0 && p.Y <= StripH * scale;
+        return IsPointInStrip(p.X, p.Y);
     }
 
     // ---------- 挂图 ----------

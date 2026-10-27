@@ -104,7 +104,7 @@ internal sealed class TrayIcon : IDisposable
         _count = n;
         if (!_added) return;
         _nid.uFlags = Native.NIF_TIP;
-        _nid.szTip = $"Clothesline — 挂着 {n} 张";
+        _nid.szTip = _win.IsPinned ? $"Clothesline — 挂着 {n} 张（已固定）" : $"Clothesline — 挂着 {n} 张";
         _ = Native.Shell_NotifyIcon(Native.NIM_MODIFY, ref _nid);
     }
 
@@ -117,7 +117,9 @@ internal sealed class TrayIcon : IDisposable
     private void ShowMenu()
     {
         IntPtr menu = Native.CreatePopupMenu();
-        _ = Native.AppendMenu(menu, Native.MF_STRING, 101, (_win.IsPinned ? "收起晾绳" : "放下晾绳") + "\tCtrl+Alt+T");
+        _ = Native.AppendMenu(menu,
+            Native.MF_STRING | (_win.IsPinned ? Native.MF_CHECKED : 0),
+            101, "固定在桌面（不自动收起）\tCtrl+Alt+T");
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
         _ = Native.AppendMenu(menu, Native.MF_STRING, 108, "挂张图片…（选择文件）");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.ContextMenuEnabled ? Native.MF_CHECKED : 0), 106, "图片右键菜单：挂到晾衣绳");

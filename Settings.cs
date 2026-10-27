@@ -14,6 +14,12 @@ internal sealed class Settings
 
     public bool RunAtStartup { get; set; } = false;
 
+    /// <summary>
+    /// 晾绳常驻桌面：滑下来就不自动收起，下次启动仍然挂着。
+    /// 常驻时鼠标不在绳上会自动"穿透"，不挡住屏幕顶部的窗口操作。
+    /// </summary>
+    public bool PinnedToDesktop { get; set; } = false;
+
     /// <summary>是否已经看过首启引导（看过就不再自动弹出）。</summary>
     public bool FirstRunDone { get; set; } = false;
 

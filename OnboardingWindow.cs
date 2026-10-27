@@ -127,7 +127,7 @@ internal sealed class OnboardingWindow : Window
             Margin = new Thickness(0, 0, 0, 18),
         });
 
-        body.Children.Add(Step("1", "鼠标推到屏幕最上沿", "绳子就会滑下来。也可以按 Ctrl+Alt+T，或左键单击托盘里的晾衣夹图标固定。"));
+        body.Children.Add(Step("1", "鼠标推到屏幕最上沿", "绳子就会滑下来，不用了它自己收回去。想让它一直挂着？按 Ctrl+Alt+T，或点绳子右端那枚小图钉，或托盘右键勾「固定在桌面」——固定后下次开机它还挂在那儿。"));
         body.Children.Add(Step("2", "截完图就挂上来了", "微信 Alt+A、QQ Ctrl+Alt+A、Win+Shift+S、Win+PrtScn 都行。微信截图只进剪贴板、不存盘，我们从剪贴板直接接住它，约 1 秒内挂上。"));
         body.Children.Add(Step("3", "单击复制 · 双击打开", "按住拖出去可发给微信、Word；鼠标停在卡片上会出现 \u2715，点了丢进回收站。"));
         body.Children.Add(Step("4", "想挂一张旧图片", "把它拖到屏幕最上沿松手；或在它上面点右键选「挂到晾衣绳」；或托盘右键「挂张图片…」挑文件。"));
