@@ -1,12 +1,14 @@
 # Clothesline
 
-<img src="docs/hero.png" alt="Clothesline：几张截图用晾衣夹挂在屏幕顶部的一条晾衣绳上" width="100%">
+<img src="https://oldplusnew.github.io/Clothesline/hero.png" alt="Clothesline：几张截图用晾衣夹挂在屏幕顶部的一条晾衣绳上" width="100%">
 
 **Windows 版「晾衣绳」：截图随手一挂，桌面干干净净。**
 
 指针蹭一下屏幕最上沿，绳就滑下来，上面挂着刚拍的截图；指针离开，它自己收回去。
 
 作者：[oldplusnew](https://github.com/oldplusnew)
+
+> **在线介绍页（含下载按钮、微信可打开）：** https://oldplusnew.github.io/Clothesline/
 
 ## 第一次用？四步上手
 
@@ -137,7 +139,7 @@ Clothesline **永久免费**：源码开放、无广告、无账号、不联网�
 
 如果它确实替你省了事，可以扫下面这张码请我喝杯茶：
 
-<img src="docs/alipay.png" alt="支付宝收款码（Oldplusnew）" width="240">
+<img src="https://oldplusnew.github.io/Clothesline/alipay.png" alt="支付宝收款码（Oldplusnew）" width="240">
 
 > 打赏完全自愿。它不会解锁任何功能——所有功能本来就都给你；也不换来"优先处理"，issue 一视同仁地看。
 
