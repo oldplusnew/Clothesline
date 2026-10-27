@@ -117,14 +117,17 @@ dotnet publish Clothesline.csproj -c Release -r win-x64 --self-contained true \
 
 | 文件 | 职责 |
 | --- | --- |
-| `Program.cs` | 入口、单实例、异常日志 |
-| `LineWindow.cs` | 顶部透明置顶面板：唤出/收起、挂图、剪贴板、热键 |
+| `Program.cs` | 入口、单实例、`--hang` / `--guide` 参数、命名管道转交、首启判断 |
+| `LineWindow.cs` | 顶部透明置顶面板：唤出/收起、挂图、剪贴板、拖放、热键 |
 | `HangItem.cs` | 一张图：玻璃相框、晾衣夹、摆动/微风、拖拽与点击 |
+| `OnboardingWindow.cs` | 首次启动的那张说明卡片（四步上手 + 三个开关） |
+| `ShellMenu.cs` | 注册 / 注销资源管理器右键「挂到晾衣绳」 |
 | `ScreenshotWatcher.cs` | 监听 `图片\Screenshots`、`视频\Captures` |
 | `MouseHook.cs` | 全局低级鼠标钩子（探测触顶） |
 | `TrayIcon.cs` | 托盘图标（代码绘制 HICON）与右键菜单 |
 | `Native.cs` | 全部 Win32 P/Invoke |
-| `Settings.cs` | 设置持久化 |
+| `Settings.cs` | 设置持久化（`%APPDATA%\Clothesline\settings.json`） |
+| `Diag.cs` | 日志落盘（`%APPDATA%\Clothesline\log.txt`），排障用 |
 
 ## 许可
 
