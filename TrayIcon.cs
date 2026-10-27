@@ -119,10 +119,12 @@ internal sealed class TrayIcon : IDisposable
         IntPtr menu = Native.CreatePopupMenu();
         _ = Native.AppendMenu(menu, Native.MF_STRING, 101, (_win.IsPinned ? "收起晾绳" : "放下晾绳") + "\tCtrl+Alt+T");
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
+        _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.ContextMenuEnabled ? Native.MF_CHECKED : 0), 106, "图片右键菜单：挂到晾衣绳");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.HangCopiedImages ? Native.MF_CHECKED : 0), 102, "挂起复制的图像");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.RunAtStartup ? Native.MF_CHECKED : 0), 103, "开机自动启动");
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
         _ = Native.AppendMenu(menu, Native.MF_STRING, 104, "打开截图文件夹");
+        _ = Native.AppendMenu(menu, Native.MF_STRING, 107, "使用说明…");
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
         _ = Native.AppendMenu(menu, Native.MF_STRING, 105, "退出");
 
@@ -142,6 +144,12 @@ internal sealed class TrayIcon : IDisposable
             case 103: ToggleStartup(); break;
             case 104: OpenScreenshotsFolder(); break;
             case 105: _win.RequestExit(); break;
+            case 106:
+                _settings.ContextMenuEnabled = !_settings.ContextMenuEnabled;
+                _settings.Save();
+                ShellMenu.Apply(_settings.ContextMenuEnabled);
+                break;
+            case 107: OnboardingWindow.ShowFor(_win, _settings); break;
         }
     }
 
@@ -149,19 +157,23 @@ internal sealed class TrayIcon : IDisposable
     {
         _settings.RunAtStartup = !_settings.RunAtStartup;
         _settings.Save();
+        SetStartup(_settings.RunAtStartup);
+    }
+
+    /// <summary>写/删 HKCU 的 Run 项，无需管理员权限。</summary>
+    public static void SetStartup(bool enabled)
+    {
         try
         {
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
                 @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true);
-            if (key != null)
-            {
-                if (_settings.RunAtStartup && Environment.ProcessPath is { } exe)
-                    key.SetValue("Clothesline", $"\"{exe}\"");
-                else
-                    key.DeleteValue("Clothesline", false);
-            }
+            if (key == null) return;
+            if (enabled && Environment.ProcessPath is { } exe)
+                key.SetValue("Clothesline", $"\"{exe}\"");
+            else
+                key.DeleteValue("Clothesline", false);
         }
-        catch { }
+        catch (Exception e) { Diag.Log("开机自启设置失败 " + e.Message); }
     }
 
     private static void OpenScreenshotsFolder()

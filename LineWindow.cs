@@ -258,13 +258,47 @@ internal sealed class LineWindow : Window
         }
     }
 
-    private void PeekBriefly()
+    /// <summary>滑下绳子并保持若干秒后自动收起（给说明窗"试一试"和右键菜单用）。</summary>
+    public void Peek(int seconds)
     {
+        if (_pinned) return;
         ShowLine();
-        _peekTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.8) };
+        _peekTimer ??= new DispatcherTimer();
         _peekTimer.Stop();
         _peekTimer.Tick -= OnPeekTick;
         _peekTimer.Tick += OnPeekTick;
+        _peekTimer.Interval = TimeSpan.FromSeconds(Math.Max(1, seconds));
+        _peekTimer.Start();
+    }
+
+    /// <summary>把外部文件（右键菜单 / 命令行 / 已运行实例转发）挂到绳上。</summary>
+    public void HangPaths(IEnumerable<string> paths)
+    {
+        int n = 0;
+        foreach (string p in paths)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(p) || !File.Exists(p)) continue;
+                string ext = Path.GetExtension(p).ToLowerInvariant();
+                bool video = ext is ".mp4" or ".mov" or ".m4v" or ".mkv" or ".avi" or ".wmv" or ".webm";
+                AddItem(p, video);
+                n++;
+            }
+            catch (Exception e) { Diag.Log($"挂载外部文件失败（{p}）：{e.Message}"); }
+        }
+        Diag.Log($"外部挂载：{n} 个");
+        if (n > 0) Peek(4);
+    }
+
+    private void PeekBriefly()
+    {
+        ShowLine();
+        _peekTimer ??= new DispatcherTimer();
+        _peekTimer.Stop();
+        _peekTimer.Tick -= OnPeekTick;
+        _peekTimer.Tick += OnPeekTick;
+        _peekTimer.Interval = TimeSpan.FromSeconds(1.8);
         _peekTimer.Start();
     }
 
