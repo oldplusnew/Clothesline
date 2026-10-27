@@ -6,7 +6,12 @@ namespace Clothesline;
 
 internal sealed class Settings
 {
-    public bool HangCopiedImages { get; set; } = false;
+    /// <summary>
+    /// 剪贴板里的图片自动挂上（微信 Alt+A、QQ 截图、Win+Shift+S、网页复制图片等）。
+    /// 微信/QQ 的截图只进剪贴板、不落盘，所以必须靠这一路才挂得上。默认开。
+    /// </summary>
+    public bool AutoHangClipboard { get; set; } = true;
+
     public bool RunAtStartup { get; set; } = false;
 
     /// <summary>是否已经看过首启引导（看过就不再自动弹出）。</summary>

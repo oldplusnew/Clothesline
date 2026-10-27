@@ -59,6 +59,7 @@ internal sealed class OnboardingWindow : Window
         Background = Brushes.Transparent;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        MaxHeight = SystemParameters.WorkArea.Height * 0.92;   // 小屏幕上超出就滚动，别顶出屏幕
         ShowInTaskbar = true;
         FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI");
 
@@ -115,12 +116,21 @@ internal sealed class OnboardingWindow : Window
             Foreground = new SolidColorBrush(Muted),
             TextWrapping = TextWrapping.Wrap,
             LineHeight = 21,
-            Margin = new Thickness(0, 0, 0, 20),
+            Margin = new Thickness(0, 0, 0, 6),
+        });
+        body.Children.Add(new TextBlock
+        {
+            Text = "作者 oldplusnew　·　改编自 Tenedero（macOS）by Alejandro Buján",
+            FontSize = 11.5,
+            Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0x8E, 0x7C)),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 0, 0, 18),
         });
 
         body.Children.Add(Step("1", "鼠标推到屏幕最上沿", "绳子就会滑下来。也可以按 Ctrl+Alt+T，或左键单击托盘里的晾衣夹图标固定。"));
-        body.Children.Add(Step("2", "截图会自动挂上去", "用 Win+PrtScn 截屏、或用系统录屏，成品一落地就挂上绳子。想挂旧图：右键它选「挂到晾衣绳」，或托盘右键「挂张图片…」。"));
+        body.Children.Add(Step("2", "截完图就挂上来了", "微信 Alt+A、QQ Ctrl+Alt+A、Win+Shift+S、Win+PrtScn 都行。微信截图只进剪贴板、不存盘，我们从剪贴板直接接住它，约 1 秒内挂上。"));
         body.Children.Add(Step("3", "单击复制 · 双击打开", "按住拖出去可发给微信、Word；鼠标停在卡片上会出现 \u2715，点了丢进回收站。"));
+        body.Children.Add(Step("4", "想挂一张旧图片", "把它拖到屏幕最上沿松手；或在它上面点右键选「挂到晾衣绳」；或托盘右键「挂张图片…」挑文件。"));
 
         // 试一试
         var tryRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 18, 0, 16) };
@@ -136,7 +146,12 @@ internal sealed class OnboardingWindow : Window
         tryRow.Children.Add(Pill("打开截图文件夹", Color.FromRgb(0xEE, 0xE5, 0xD6), Ink, OpenShots));
         body.Children.Add(tryRow);
 
-        // 两个开关
+        // 三个开关
+        body.Children.Add(Switch("截图 / 复制的图片自动挂上（含微信 Alt+A）", _settings.AutoHangClipboard, v =>
+        {
+            _settings.AutoHangClipboard = v;
+            _settings.Save();
+        }));
         body.Children.Add(Switch("开机自动启动（推荐）", _settings.RunAtStartup, v =>
         {
             _settings.RunAtStartup = v;
@@ -176,7 +191,12 @@ internal sealed class OnboardingWindow : Window
         foot.Children.Add(start);
         body.Children.Add(foot);
 
-        card.Child = body;
+        card.Child = new ScrollViewer
+        {
+            Content = body,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
         Content = card;
 
         // Esc / Enter 都能关（不用抬手找那枚 ✕）

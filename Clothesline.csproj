@@ -13,6 +13,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyTitle>Clothesline</AssemblyTitle>
     <Product>Clothesline</Product>
+    <Company>oldplusnew</Company>
+    <Authors>oldplusnew</Authors>
+    <Copyright>Copyright (c) 2026 oldplusnew；改编自 Tenedero (macOS) by Alejandro Buján（MIT）</Copyright>
+    <Description>Windows 版「晾衣绳」：截图随手一挂，桌面干干净净。改编自 Tenedero。</Description>
     <Version>0.1.0</Version>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
   </PropertyGroup>

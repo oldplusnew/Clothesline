@@ -535,28 +535,85 @@ internal sealed class LineWindow : Window
 
     private void OnClipboardChanged()
     {
-        if (!_settings.HangCopiedImages) return;
+        if (!_settings.AutoHangClipboard) return;
         if (Environment.TickCount64 < _suppressClipboardUntil) return;
         try
         {
-            if (Clipboard.ContainsText() || Clipboard.ContainsFileDropList() || Clipboard.ContainsAudio()) return;
+            // 复制文件（资源管理器 Ctrl+C）不算截图，交给拖放/右键菜单那条路
+            if (Clipboard.ContainsFileDropList() || Clipboard.ContainsAudio()) return;
             if (!Clipboard.ContainsImage()) return;
             if (_exclClipFmt != 0 && Native.IsClipboardFormatAvailable(_exclClipFmt)) return; // 密码管理器标记的私有内容
-            var img = Clipboard.GetImage();
-            if (img == null || img.PixelWidth < 8 || img.PixelHeight < 8) return;
+
+            var raw = TryGetClipboardImage();   // 剪贴板正被别的程序占用时，重试几次
+            if (raw == null || raw.PixelWidth < 8 || raw.PixelHeight < 8) return;
+            var img = NormalizeAlpha(raw);
             if (_lastFileItem is { } last
                 && (DateTime.Now - last.t).TotalSeconds < 5
-                && last.w == img.PixelWidth && last.h == img.PixelHeight) return; // Win+Shift+S 已按文件挂过，去重
+                && last.w == img.PixelWidth && last.h == img.PixelHeight)
+            {
+                Diag.Log("剪贴板：与刚落盘的截图同尺寸，视为同一次截图，跳过");
+                return; // Win+Shift+S 已按文件挂过，去重
+            }
 
             var store = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clothesline", "Hang");
             Directory.CreateDirectory(store);
-            var file = Path.Combine(store, $"copy_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
+            var file = Path.Combine(store, $"clip_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
             var enc = new PngBitmapEncoder();
             enc.Frames.Add(BitmapFrame.Create(img));
             using (var fs = File.Create(file)) enc.Save(fs);
+            Diag.Log($"剪贴板：挂上 {img.PixelWidth}×{img.PixelHeight} 图片 → {Path.GetFileName(file)}");
             AddItem(file, false, img);
         }
-        catch { }
+        catch (Exception e) { Diag.Log("剪贴板读取失败：" + e.Message); }
+    }
+
+    /// <summary>微信/QQ 截图刚写完剪贴板时可能还被占用，重试几次再放弃。</summary>
+    private static System.Windows.Media.Imaging.BitmapSource? TryGetClipboardImage()
+    {
+        for (int i = 0; i < 3; i++)
+        {
+            try
+            {
+                var img = Clipboard.GetImage();
+                if (img != null) return img;
+            }
+            catch { }
+            System.Threading.Thread.Sleep(80);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// CF_DIB 里 32 位位图的 alpha 字节常常是垃圾（多半全 0）。WPF 照单全收会把整张图当成全透明，
+    /// 相框里就只剩一块灰。这里抽样看 alpha：几乎全 0 就视为"本来就没有透明"，转成 Bgr24。
+    /// </summary>
+    private static System.Windows.Media.Imaging.BitmapSource NormalizeAlpha(System.Windows.Media.Imaging.BitmapSource src)
+    {
+        if (src.Format != PixelFormats.Bgra32 && src.Format != PixelFormats.Pbgra32) return src;
+
+        int w = src.PixelWidth, h = src.PixelHeight;
+        if (w <= 0 || h <= 0) return src;
+
+        int stride = w * 4;
+        var row = new byte[stride];
+        long total = 0, opaque = 0;
+        int stepY = Math.Max(1, h / 40);
+        for (int y = 0; y < h; y += stepY)
+        {
+            try { src.CopyPixels(new Int32Rect(0, y, w, 1), row, stride, 0); }
+            catch { return src; }
+            for (int x = 3; x < stride; x += 4)
+            {
+                total++;
+                if (row[x] != 0) opaque++;
+            }
+        }
+        if (total == 0 || opaque * 100 / total >= 5) return src;   // alpha 有效，别动
+
+        var conv = new FormatConvertedBitmap(src, PixelFormats.Bgr24, null, 0);
+        conv.Freeze();
+        Diag.Log("剪贴板：alpha 通道为空，按无透明处理");
+        return conv;
     }
 
     // ---------- 退出清理 ----------

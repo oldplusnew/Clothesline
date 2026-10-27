@@ -121,7 +121,7 @@ internal sealed class TrayIcon : IDisposable
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
         _ = Native.AppendMenu(menu, Native.MF_STRING, 108, "挂张图片…（选择文件）");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.ContextMenuEnabled ? Native.MF_CHECKED : 0), 106, "图片右键菜单：挂到晾衣绳");
-        _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.HangCopiedImages ? Native.MF_CHECKED : 0), 102, "挂起复制的图像");
+        _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.AutoHangClipboard ? Native.MF_CHECKED : 0), 102, "截图 / 复制的图片自动挂上（微信 Alt+A 等）");
         _ = Native.AppendMenu(menu, Native.MF_STRING | (_settings.RunAtStartup ? Native.MF_CHECKED : 0), 103, "开机自动启动");
         _ = Native.AppendMenu(menu, Native.MF_SEPARATOR, 0, null);
         _ = Native.AppendMenu(menu, Native.MF_STRING, 104, "打开截图文件夹");
@@ -139,7 +139,7 @@ internal sealed class TrayIcon : IDisposable
         {
             case 101: _win.TogglePin(); break;
             case 102:
-                _settings.HangCopiedImages = !_settings.HangCopiedImages;
+                _settings.AutoHangClipboard = !_settings.AutoHangClipboard;
                 _settings.Save();
                 break;
             case 103: ToggleStartup(); break;
