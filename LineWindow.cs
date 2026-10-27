@@ -33,6 +33,7 @@ internal sealed class LineWindow : Window
     private System.Windows.Shapes.Path _line = null!;
 
     private IntPtr _hwnd;
+    private uint _taskbarCreated;
     private bool _pinned, _shown;
     private uint _exclClipFmt;
     private long _suppressClipboardUntil;
@@ -141,6 +142,7 @@ internal sealed class LineWindow : Window
         Native.RegisterHotKey(_hwnd, 1, Native.MOD_CONTROL | Native.MOD_ALT, 0x54 /* T */);
         Native.AddClipboardFormatListener(_hwnd);
         _exclClipFmt = Native.RegisterClipboardFormat("ExcludeClipboardContentFromMonitorProcessing");
+        _taskbarCreated = Native.RegisterWindowMessage("TaskbarCreated");
 
         _mouse.MouseMoved += OnGlobalMouse;
         _mouse.Install();
@@ -156,6 +158,14 @@ internal sealed class LineWindow : Window
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
+        // 资源管理器重启广播（消息号是运行时注册的，不能写死常量）
+        if (_taskbarCreated != 0 && msg == (int)_taskbarCreated)
+        {
+            _tray?.ReAdd();
+            handled = true;
+            return IntPtr.Zero;
+        }
+
         switch (msg)
         {
             case Native.WM_MOUSEACTIVATE:

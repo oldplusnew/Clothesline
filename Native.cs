@@ -119,6 +119,7 @@ internal static class Native
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct NOTIFYICONDATA
     {
+        public uint cbSize;   // 必须是第一个字段，且等于 Marshal.SizeOf<NOTIFYICONDATA>()
         public IntPtr hWnd;
         public uint uID;
         public uint uFlags;
@@ -135,8 +136,12 @@ internal static class Native
         public IntPtr hBalloonIcon;
     }
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern bool Shell_NotifyIcon(uint dwMessage, ref NOTIFYICONDATA lpData);
+
+    // 资源管理器崩溃/重启后，会向所有顶层窗口广播此消息，需据此重挂托盘图标
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern uint RegisterWindowMessage(string lpString);
 
     [DllImport("user32.dll")]
     public static extern bool DestroyIcon(IntPtr hIcon);

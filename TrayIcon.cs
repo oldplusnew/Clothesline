@@ -15,6 +15,7 @@ internal sealed class TrayIcon : IDisposable
     private readonly IntPtr _hwnd;
     private Native.NOTIFYICONDATA _nid;
     private bool _added;
+    private int _count;
 
     public TrayIcon(LineWindow win, Settings settings)
     {
@@ -24,6 +25,7 @@ internal sealed class TrayIcon : IDisposable
 
         _nid = new Native.NOTIFYICONDATA
         {
+            cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.NOTIFYICONDATA>(),
             hWnd = _hwnd,
             uID = 1,
             uFlags = Native.NIF_MESSAGE | Native.NIF_ICON | Native.NIF_TIP,
@@ -31,11 +33,75 @@ internal sealed class TrayIcon : IDisposable
             hIcon = CreateHIcon(),
             szTip = "Clothesline — 挂着 0 张",
         };
+        Diag.Log($"托盘：cbSize={_nid.cbSize} 结构大小={System.Runtime.InteropServices.Marshal.SizeOf<Native.NOTIFYICONDATA>()} hIcon=0x{_nid.hIcon.ToInt64():X} hwnd=0x{_hwnd.ToInt64():X}");
+        Add();
+        SchedulePromote();
+    }
+
+    /// <summary>延后 3 秒把图标标记为"常驻显示"——资源管理器是异步记账的，立刻查会查不到。</summary>
+    private void SchedulePromote()
+    {
+        var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        t.Tick += (_, _) => { t.Stop(); PromoteInTray(); };
+        t.Start();
+    }
+
+    /// <summary>
+    /// Win11 默认把新托盘图标塞进「^」折叠区。若本进程设置了关机自启，图标被折叠就永远看不见，
+    /// 故主动把 HKCU\Control Panel\NotifyIconSettings 下本 exe 的条目标为 IsPromoted=1。
+    /// </summary>
+    private static void PromoteInTray()
+    {
+        try
+        {
+            string? exe = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(exe)) return;
+
+            using var root = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Control Panel\NotifyIconSettings", writable: true);
+            if (root == null) return;
+
+            foreach (var name in root.GetSubKeyNames())
+            {
+                using var sub = root.OpenSubKey(name, writable: true);
+                if (sub?.GetValue("ExecutablePath") is not string path) continue;
+                if (!string.Equals(path, exe, StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (sub.GetValue("IsPromoted") is int v && v == 1) return; // 已经是常驻
+                sub.SetValue("IsPromoted", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                Diag.Log("托盘：已标记为常驻显示（IsPromoted=1）");
+                return;
+            }
+            Diag.Log("托盘：系统尚未记账，跳过常驻设置");
+        }
+        catch (Exception e) { Diag.Log("托盘：设置常驻失败 " + e.Message); }
+    }
+
+    /// <summary>注册托盘图标，返回是否成功（失败会记日志，绝不静默）。</summary>
+    private bool Add()
+    {
+        if (_nid.hIcon == IntPtr.Zero) _nid.hIcon = CreateHIcon(); // 兜底重建
+
+        _nid.uFlags = Native.NIF_MESSAGE | Native.NIF_ICON | Native.NIF_TIP;
         _added = Native.Shell_NotifyIcon(Native.NIM_ADD, ref _nid);
+        int err = System.Runtime.InteropServices.Marshal.GetLastWin32Error();
+        Diag.Log(_added ? "托盘：注册成功" : $"托盘：注册失败 err={err}（图标将不可见）");
+        return _added;
+    }
+
+    /// <summary>资源管理器重启（TaskbarCreated 广播）后重新挂上图标。</summary>
+    public void ReAdd()
+    {
+        _added = false;
+        Add();
+        if (_added) SetCount(_count);
+        Diag.Log("托盘：收到 TaskbarCreated，已重新注册");
+        SchedulePromote();
     }
 
     public void SetCount(int n)
     {
+        _count = n;
         if (!_added) return;
         _nid.uFlags = Native.NIF_TIP;
         _nid.szTip = $"Clothesline — 挂着 {n} 张";
