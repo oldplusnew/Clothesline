@@ -26,6 +26,13 @@ internal sealed class OnboardingWindow : Window
     private readonly LineWindow _line;
     private readonly Settings _settings;
 
+    /// <summary>打在可点击控件上的标记：从这里按下只算点击，不算拖动窗口。</summary>
+    private const string ClickTag = "click";
+
+    private Point _dragFromScreen;
+    private double _dragFromLeft, _dragFromTop;
+    private bool _dragArmed;
+
     public static void ShowFor(LineWindow line, Settings settings)
     {
         if (_open != null)
@@ -35,6 +42,7 @@ internal sealed class OnboardingWindow : Window
         }
         _open = new OnboardingWindow(line, settings);
         _open.Closed += (_, _) => _open = null;
+        _open.Loaded += (_, _) => { _open?.Activate(); _open?.Focus(); };
         _open.Show();
     }
 
@@ -64,22 +72,32 @@ internal sealed class OnboardingWindow : Window
             Effect = new System.Windows.Media.Effects.DropShadowEffect
             { BlurRadius = 28, ShadowDepth = 6, Direction = 270, Opacity = 0.22 },
         };
-        card.MouseLeftButtonDown += (_, e) => { if (e.ButtonState == MouseButtonState.Pressed) DragMove(); };
+        // 注意：这里绝不能用 Window.DragMove()。它内部发 WM_NCLBUTTONDOWN 进模态循环，
+        // 松开鼠标的消息会被拖动逻辑吃掉，DragMove 返回时 MouseLeftButtonUp 已经丢了，
+        // 于是所有靠 "抬起" 触发的控件（✕、按钮）全都点不动。
+        // 改为自己按位移拖动窗口，不阻塞消息循环；按钮上按下则完全不拖。
+        card.MouseLeftButtonDown += OnCardMouseDown;
+        card.MouseMove += OnCardMouseMove;
+        card.MouseLeftButtonUp += (_, _) => _dragArmed = false;
 
         var body = new StackPanel { Margin = new Thickness(34, 28, 34, 26) };
 
-        // 关闭按钮
+        // 关闭按钮（命中区放大一圈，别让人点不准）
         var close = new TextBlock
         {
             Text = "\u2715",
             FontSize = 14,
             Foreground = new SolidColorBrush(Muted),
             HorizontalAlignment = HorizontalAlignment.Right,
+            TextAlignment = TextAlignment.Center,
             Cursor = Cursors.Hand,
-            Margin = new Thickness(0, -12, -12, 0),
-            Padding = new Thickness(6),
+            Margin = new Thickness(0, -14, -14, 0),
+            Padding = new Thickness(10, 7, 10, 7),
+            Tag = ClickTag,
         };
-        close.MouseLeftButtonUp += (_, _) => Close();
+        close.MouseEnter += (_, _) => close.Foreground = new SolidColorBrush(Ink);
+        close.MouseLeave += (_, _) => close.Foreground = new SolidColorBrush(Muted);
+        close.MouseLeftButtonUp += (_, e) => { e.Handled = true; Diag.Log("说明窗：点击关闭"); Close(); };
         body.Children.Add(close);
 
         body.Children.Add(new TextBlock
@@ -148,7 +166,11 @@ internal sealed class OnboardingWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 0, 0, 10),
         });
-        var start = Pill("开始使用", Color.FromRgb(0x3A, 0x33, 0x2A), Colors.White, Close);
+        var start = Pill("开始使用", Color.FromRgb(0x3A, 0x33, 0x2A), Colors.White, () =>
+        {
+            Diag.Log("说明窗：点击开始使用");
+            Close();
+        });
         start.HorizontalAlignment = HorizontalAlignment.Right;
         start.Margin = new Thickness(0);
         foot.Children.Add(start);
@@ -156,6 +178,12 @@ internal sealed class OnboardingWindow : Window
 
         card.Child = body;
         Content = card;
+
+        // Esc / Enter 都能关（不用抬手找那枚 ✕）
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape || e.Key == Key.Enter) { e.Handled = true; Close(); }
+        };
     }
 
     private static UIElement Step(string num, string title, string desc)
@@ -215,6 +243,7 @@ internal sealed class OnboardingWindow : Window
             Foreground = new SolidColorBrush(Ink),
             Margin = new Thickness(0, 2, 0, 8),
             VerticalContentAlignment = VerticalAlignment.Center,
+            Tag = ClickTag,
         };
         cb.Checked += (_, _) => onChange(true);
         cb.Unchecked += (_, _) => onChange(false);
@@ -230,6 +259,7 @@ internal sealed class OnboardingWindow : Window
             Padding = new Thickness(16, 8, 16, 8),
             Margin = new Thickness(0, 0, 10, 0),
             Cursor = Cursors.Hand,
+            Tag = ClickTag,
             Child = new TextBlock
             {
                 Text = text,
@@ -240,8 +270,51 @@ internal sealed class OnboardingWindow : Window
         };
         b.MouseEnter += (_, _) => b.Opacity = 0.85;
         b.MouseLeave += (_, _) => b.Opacity = 1;
-        b.MouseLeftButtonUp += (_, _) => onClick();
+        b.MouseLeftButtonUp += (_, e) => { e.Handled = true; onClick(); };
         return b;
+    }
+
+    // ---- 自实现的窗口拖动（不用 DragMove，见构造函数里的说明） ----
+
+    private void OnCardMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ButtonState != MouseButtonState.Pressed) return;
+        _dragArmed = false;
+        if (IsClickable(e.OriginalSource as DependencyObject, sender as DependencyObject)) return;
+        _dragFromScreen = PointToScreen(e.GetPosition(this));
+        _dragFromLeft = Left;
+        _dragFromTop = Top;
+        _dragArmed = true;
+    }
+
+    private void OnCardMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_dragArmed) return;
+        if (e.LeftButton != MouseButtonState.Pressed) { _dragArmed = false; return; }
+
+        // PointToScreen 得到的是光标的真实屏幕坐标，窗口挪动后这个值仍然稳定。
+        Point now = PointToScreen(e.GetPosition(this));
+        double dx = now.X - _dragFromScreen.X;
+        double dy = now.Y - _dragFromScreen.Y;
+        if (Math.Abs(dx) < 4 && Math.Abs(dy) < 4) return;   // 微抖不算拖
+
+        Left = _dragFromLeft + dx;
+        Top = _dragFromTop + dy;
+    }
+
+    /// <summary>从原始命中点往上走，判断这一下是按在按钮/复选框/可点击块上。</summary>
+    private static bool IsClickable(DependencyObject? src, DependencyObject? stopAt)
+    {
+        while (src != null)
+        {
+            if (ReferenceEquals(src, stopAt)) return false;
+            if (src is System.Windows.Controls.Primitives.ButtonBase) return true;
+            if (src is FrameworkElement fe && fe.Tag is string s && s == ClickTag) return true;
+            src = src is Visual || src is System.Windows.Media.Media3D.Visual3D
+                ? VisualTreeHelper.GetParent(src)
+                : LogicalTreeHelper.GetParent(src);
+        }
+        return false;
     }
 
     private static void OpenShots()

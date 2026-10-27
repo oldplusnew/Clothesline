@@ -25,12 +25,13 @@ internal static class Program
     private static void Main(string[] args)
     {
         List<string> files = CollectFiles(args);
+        bool wantGuide = args.Any(a => a.Equals("--guide", StringComparison.OrdinalIgnoreCase));
 
         _mutex = new Mutex(true, MutexName, out bool created);
         if (!created)
         {
             // 已在运行：把文件转交给它（没有文件就让绳子滑下来打个招呼），然后本进程退出
-            if (!Forward(files))
+            if (!Forward(files, wantGuide))
             {
                 MessageBox.Show(
                     "Clothesline 已经在运行了。\n\n它没有主窗口，请看屏幕右下角任务栏托盘里的「晾衣夹」图标——左键单击可让绳子滑下来，右键有菜单。",
@@ -60,7 +61,7 @@ internal static class Program
         win.AttachTray(tray);
         win.StartWatchers();
 
-        StartPipeServer(win, Log);
+        StartPipeServer(win, settings, Log);
 
         // 每次启动校正一次系统集成状态（exe 可能被搬过位置）
         ShellMenu.Apply(settings.ContextMenuEnabled);
@@ -70,11 +71,11 @@ internal static class Program
         app.Dispatcher.BeginInvoke(new Action(() =>
         {
             if (files.Count > 0) win.HangPaths(files);
-            if (!settings.FirstRunDone)
+            if (!settings.FirstRunDone || wantGuide)
             {
                 settings.FirstRunDone = true;
                 settings.Save();
-                Log("首次启动：显示使用说明");
+                Log(wantGuide ? "按请求显示使用说明" : "首次启动：显示使用说明");
                 OnboardingWindow.ShowFor(win, settings);
             }
         }));
@@ -107,14 +108,16 @@ internal static class Program
     }
 
     /// <summary>把文件（或空列表=请求唤出）转交给已运行的实例；失败返回 false。</summary>
-    private static bool Forward(List<string> files)
+    private static bool Forward(List<string> files, bool wantGuide)
     {
         try
         {
             using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out);
             client.Connect(2500);
             using var w = new StreamWriter(client, new UTF8Encoding(false)) { AutoFlush = true };
-            w.Write(string.Join("\n", files));
+            var lines = new List<string>(files);
+            if (wantGuide) lines.Add("--guide");
+            w.Write(string.Join("\n", lines));
             return true;
         }
         catch (Exception e)
@@ -125,7 +128,7 @@ internal static class Program
     }
 
     /// <summary>常驻管道服务：接收后续实例传来的文件列表。</summary>
-    private static void StartPipeServer(LineWindow win, Action<string> log)
+    private static void StartPipeServer(LineWindow win, Settings settings, Action<string> log)
     {
         var t = new Thread(() =>
         {
@@ -138,6 +141,7 @@ internal static class Program
                     server.WaitForConnection();
                     using var reader = new StreamReader(server, new UTF8Encoding(false));
                     string text = reader.ReadToEnd();
+                    bool guide = text.Contains("--guide", StringComparison.Ordinal);
                     List<string> list = text
                         .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                         .Select(s => s.Trim())
@@ -147,9 +151,10 @@ internal static class Program
                     win.Dispatcher.BeginInvoke(new Action(() =>
                     {
                         if (list.Count > 0) win.HangPaths(list);
-                        else win.Peek(3);
+                        if (guide) OnboardingWindow.ShowFor(win, settings);
+                        else if (list.Count == 0) win.Peek(3);
                     }));
-                    log($"IPC：收到 {list.Count} 个文件");
+                    log($"IPC：收到 {list.Count} 个文件{(guide ? "（含说明请求）" : "")}");
                 }
                 catch (Exception e)
                 {
