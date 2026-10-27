@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish self-contained single file
+        run: >
+          dotnet publish Clothesline.csproj -c Release -r win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -o out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Clothesline-win-x64
+          path: out/Clothesline.exe
+          if-no-files-found: error
+
+      - name: Attach exe to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/Clothesline.exe
+          body: |
+            下载 `Clothesline.exe` 双击即可运行（自包含，无需安装 .NET）。
+
+            Clothesline 是 [Tendedero](https://github.com/alejandrobujan/tendedero)（macOS，作者 Alejandro Buján）的 Windows 重写版，交互设计与功能定义均致敬原作；名称与图标为另行创作。
