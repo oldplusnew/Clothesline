@@ -49,6 +49,7 @@ internal sealed class LineWindow : Window
     /// <summary>这次「露头」从什么时候开始。露头最多续 6 秒，不能因为光标停在屏幕上沿就一直不收。</summary>
     private DateTime _peekStart;
     private bool _pinVisible;
+    private DispatcherTimer? _pinDwellTimer;
 
     public bool IsPinned => _pinned;
 
@@ -203,7 +204,26 @@ internal sealed class LineWindow : Window
     /// </summary>
     private void UpdatePinVisibility(bool inside)
     {
-        bool show = inside || _pinned;
+        if (_pinned) { _pinDwellTimer?.Stop(); SetPinVisible(true); return; }
+        if (!inside) { _pinDwellTimer?.Stop(); SetPinVisible(false); return; }
+        if (_pinVisible) return;
+
+        // 光标扫过不算，要在绳区里停一下才显示——避免点标签页 / 关闭按钮时顺手点中它。
+        _pinDwellTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _pinDwellTimer.Stop();
+        _pinDwellTimer.Tick -= OnPinDwellTick;
+        _pinDwellTimer.Tick += OnPinDwellTick;
+        _pinDwellTimer.Start();
+    }
+
+    private void OnPinDwellTick(object? sender, EventArgs e)
+    {
+        _pinDwellTimer?.Stop();
+        if (IsCursorInsideStrip()) SetPinVisible(true);
+    }
+
+    private void SetPinVisible(bool show)
+    {
         if (show == _pinVisible) return;
         _pinVisible = show;
         _pinBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
