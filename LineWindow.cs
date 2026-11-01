@@ -46,6 +46,9 @@ internal sealed class LineWindow : Window
     private long _suppressClipboardUntil;
     private (DateTime t, int w, int h)? _lastFileItem;
     private DispatcherTimer? _hideTimer, _peekTimer, _breezeTimer, _dragGuard;
+    /// <summary>这次「露头」从什么时候开始。露头最多续 6 秒，不能因为光标停在屏幕上沿就一直不收。</summary>
+    private DateTime _peekStart;
+    private bool _pinVisible;
 
     public bool IsPinned => _pinned;
 
@@ -190,8 +193,23 @@ internal sealed class LineWindow : Window
         };
         _pinBtn.MouseLeftButtonUp += (_, e) => { e.Handled = true; SetPinned(!_pinned); };
         _root.Children.Add(_pinBtn);
+        _pinBtn.Visibility = Visibility.Collapsed; // 默认不显示，鼠标贴近绳子才出来
         UpdatePinVisual();
     }
+
+    /// <summary>
+    /// 图钉只在鼠标贴近绳子（或已经固定）时出现。它以前是常驻的：绳子每次因为截图「露头」，
+    /// 右上角都悬着一枚可点的图钉，正好压在标签页 / 关闭按钮那一片，顺手一点就把绳子钉死了。
+    /// </summary>
+    private void UpdatePinVisibility(bool inside)
+    {
+        bool show = inside || _pinned;
+        if (show == _pinVisible) return;
+        _pinVisible = show;
+        _pinBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private bool IsCursorInsideStrip() => Native.GetCursorPos(out var p) && IsPointInStrip(p.X, p.Y);
 
     /// <summary>图钉的外观跟着固定状态走：灰色=会自己收起，橙色=已固定在桌面。</summary>
     private void UpdatePinVisual()
@@ -345,6 +363,8 @@ internal sealed class LineWindow : Window
 
     private void OnGlobalMouse(int x, int y)
     {
+        UpdatePinVisibility(IsPointInStrip(x, y)); // 图钉跟着指针出现/消失
+
         // 常驻模式：鼠标进绳区就取消穿透（好点图和图钉），离开绳区就恢复穿透。
         // 这样绳子一直挂在那儿，也不会挡住屏幕顶部本来要点的东西。
         if (_pinned)
@@ -463,6 +483,7 @@ internal sealed class LineWindow : Window
         }
 
         UpdatePinVisual();
+        UpdatePinVisibility(IsCursorInsideStrip());
         _tray?.SetCount(_items.Count); // 托盘提示里的"（已固定）"跟着变
         Diag.Log(on ? "晾绳：已固定在桌面（下次启动仍是）" : "晾绳：取消固定，恢复自动收起");
     }
@@ -491,6 +512,7 @@ internal sealed class LineWindow : Window
     {
         if (_pinned) return;
         ShowLine();
+        _peekStart = DateTime.Now;
         _peekTimer ??= new DispatcherTimer();
         _peekTimer.Stop();
         _peekTimer.Tick -= OnPeekTick;
@@ -522,6 +544,7 @@ internal sealed class LineWindow : Window
     private void PeekBriefly()
     {
         ShowLine();
+        _peekStart = DateTime.Now;
         _peekTimer ??= new DispatcherTimer();
         _peekTimer.Stop();
         _peekTimer.Tick -= OnPeekTick;
@@ -534,7 +557,9 @@ internal sealed class LineWindow : Window
     {
         _peekTimer!.Stop();
         if (_pinned) return;
-        if (IsMouseInsideStrip()) { _peekTimer.Start(); return; }
+        // 光标停在绳区就多留一会儿，方便顺手点点图；但最多续到 6 秒——
+        // 否则只要鼠标停在屏幕上沿那条带子里，绳子就永远收不回去，看着像被「固定」了。
+        if (IsMouseInsideStrip() && (DateTime.Now - _peekStart).TotalSeconds < 6) { _peekTimer.Start(); return; }
         if (_shown) HideLine();
     }
 
