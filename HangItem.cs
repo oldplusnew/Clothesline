@@ -238,24 +238,6 @@ internal sealed class HangItem
         return sb.ToString() is "CabinetWClass" or "ExploreWClass";
     }
 
-    public void Swing(double initialAngle)
-    {
-        _rot.Angle = initialAngle;
-        var ease = new ElasticEase { Oscillations = 2, Springiness = 9, EasingMode = EasingMode.EaseOut };
-        _rot.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, TimeSpan.FromSeconds(1.2)) { EasingFunction = ease });
-    }
-
-    public void Breeze()
-    {
-        var a = new DoubleAnimation(-2.2, 2.2, TimeSpan.FromSeconds(1.0))
-        {
-            AutoReverse = true,
-            RepeatBehavior = new RepeatBehavior(2),
-            EasingFunction = new SineEase(),
-        };
-        _rot.BeginAnimation(RotateTransform.AngleProperty, a);
-    }
-
     public void FlashCopied()
     {
         var a = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(1.2))

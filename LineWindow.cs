@@ -45,7 +45,7 @@ internal sealed class LineWindow : Window
     private uint _exclClipFmt;
     private long _suppressClipboardUntil;
     private (DateTime t, int w, int h)? _lastFileItem;
-    private DispatcherTimer? _hideTimer, _peekTimer, _breezeTimer, _dragGuard;
+    private DispatcherTimer? _hideTimer, _peekTimer, _dragGuard;
     /// <summary>这次「露头」从什么时候开始。露头最多续 6 秒，不能因为光标停在屏幕上沿就一直不收。</summary>
     private DateTime _peekStart;
     private bool _pinVisible;
@@ -332,13 +332,8 @@ internal sealed class LineWindow : Window
         _mouse.MouseMoved += OnGlobalMouse;
         _mouse.Install();
 
-        _breezeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
-        _breezeTimer.Tick += (_, _) =>
-        {
-            _breezeTimer.Interval = TimeSpan.FromSeconds(4 + Random.Shared.NextDouble() * 10);
-            if (_items.Count > 0) _items[Random.Shared.Next(_items.Count)].Breeze();
-        };
-        _breezeTimer.Start();
+        // 原来这里每 4–14 秒随机挑一张图"吹口风"（±2.2° 摆两个来回，还会停在 -2.2° 回不正）。
+        // 去掉：不动的画面更干净。
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -451,7 +446,7 @@ internal sealed class LineWindow : Window
         _shown = true;
         _hideTimer.Stop();
         SetClickThrough(false);
-        SlideTo(0, TimeSpan.FromSeconds(0.55), new BounceEase { Bounces = 1, Bounciness = 3, EasingMode = EasingMode.EaseOut });
+        SlideTo(0, TimeSpan.FromSeconds(0.32), new CubicEase { EasingMode = EasingMode.EaseOut });
     }
 
     private void HideLine()
@@ -617,7 +612,7 @@ internal sealed class LineWindow : Window
         HookItem(item);
         _row.Children.Add(item.Visual);
         item.Visual.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromSeconds(0.3)));
-        item.Swing((Random.Shared.NextDouble() - 0.5) * 14);
+        // 不再做弹性摆动：新图直接淡入（上面的 Opacity 动画），平滑落下即可
         _items.Add(item);
 
         if (preview == null && !isVideo && thumb is BitmapSource bs)
@@ -793,7 +788,6 @@ internal sealed class LineWindow : Window
         try { if (_hwnd != IntPtr.Zero) Native.RemoveClipboardFormatListener(_hwnd); } catch { }
         _mouse.Dispose();
         _watcher.Dispose();
-        _breezeTimer?.Stop();
         _hideTimer?.Stop();
         _peekTimer?.Stop();
     }
