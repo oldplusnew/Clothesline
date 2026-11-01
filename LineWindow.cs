@@ -44,8 +44,9 @@ internal sealed class LineWindow : Window
     private bool _stripInteractive;
     private uint _exclClipFmt;
     private long _suppressClipboardUntil;
-    private (DateTime t, int w, int h)? _lastFileItem;
-    private DispatcherTimer? _hideTimer, _peekTimer, _breezeTimer, _dragGuard;
+    /// <summary>最近一次自动挂上的图：时间、真实像素尺寸、是否来自剪贴板。用来认出"同一次截图被收了两遍"。</summary>
+    private (DateTime t, int w, int h, bool fromClipboard)? _lastHang;
+    private DispatcherTimer? _hideTimer, _peekTimer, _breezeTimer, _dragGuard, _clipDebounce;
 
     public bool IsPinned => _pinned;
 
@@ -322,7 +323,7 @@ internal sealed class LineWindow : Window
                 if (wParam == (IntPtr)1) { TogglePin(); handled = true; }
                 break;
             case Native.WM_CLIPBOARDUPDATE:
-                OnClipboardChanged();
+                ArmClipboardRead();
                 break;
             case Native.WM_APP + 1:
                 _tray?.HandleTrayMessage(unchecked((int)lParam.ToInt64()));
@@ -558,15 +559,26 @@ internal sealed class LineWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
-            try { AddItem(path, isVideo); } catch { }
+            try
+            {
+                var size = isVideo ? null : TryGetPixelSize(path);
+                if (size is { } s && IsSameShot(s.W, s.H, fromClipboard: false))
+                {
+                    Diag.Log($"文件夹：{Path.GetFileName(path)} 与刚挂上的图同为 {s.W}×{s.H}，视为同一次截图，跳过");
+                    return;
+                }
+                if (AddItem(path, isVideo) && size is { } s2) MarkHung(s2.W, s2.H, fromClipboard: false);
+            }
+            catch { }
         });
     }
 
-    public void AddItem(string path, bool isVideo, ImageSource? preview = null)
+    /// <summary>把一张图挂到绳上；返回是否真的挂上了（图片读不出来就不挂）。</summary>
+    public bool AddItem(string path, bool isVideo, ImageSource? preview = null)
     {
         ImageSource? thumb = preview;
         if (thumb == null && !isVideo) thumb = LoadThumbnail(path);
-        if (thumb == null && !isVideo) return; // 图片读不出来就不挂
+        if (thumb == null && !isVideo) return false; // 图片读不出来就不挂
 
         var item = new HangItem(path, isVideo, thumb);
         HookItem(item);
@@ -575,13 +587,11 @@ internal sealed class LineWindow : Window
         item.Swing((Random.Shared.NextDouble() - 0.5) * 14);
         _items.Add(item);
 
-        if (preview == null && !isVideo && thumb is BitmapSource bs)
-            _lastFileItem = (DateTime.Now, bs.PixelWidth, bs.PixelHeight);
-
         TrimOverflow();
         _tray?.SetCount(_items.Count);
 
         if (!_shown && !_pinned) PeekBriefly(); // 新截图来了，露个头提示
+        return true;
     }
 
     private static ImageSource? LoadThumbnail(string path)
@@ -669,12 +679,10 @@ internal sealed class LineWindow : Window
             var raw = TryGetClipboardImage();   // 剪贴板正被别的程序占用时，重试几次
             if (raw == null || raw.PixelWidth < 8 || raw.PixelHeight < 8) return;
             var img = NormalizeAlpha(raw);
-            if (_lastFileItem is { } last
-                && (DateTime.Now - last.t).TotalSeconds < 5
-                && last.w == img.PixelWidth && last.h == img.PixelHeight)
+            if (IsSameShot(img.PixelWidth, img.PixelHeight, fromClipboard: true))
             {
-                Diag.Log("剪贴板：与刚落盘的截图同尺寸，视为同一次截图，跳过");
-                return; // Win+Shift+S 已按文件挂过，去重
+                Diag.Log($"剪贴板：{img.PixelWidth}×{img.PixelHeight} 与刚挂上的图是同一次截图，跳过");
+                return;
             }
 
             var store = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Clothesline", "Hang");
@@ -684,9 +692,59 @@ internal sealed class LineWindow : Window
             enc.Frames.Add(BitmapFrame.Create(img));
             using (var fs = File.Create(file)) enc.Save(fs);
             Diag.Log($"剪贴板：挂上 {img.PixelWidth}×{img.PixelHeight} 图片 → {Path.GetFileName(file)}");
-            AddItem(file, false, img);
+            if (AddItem(file, false, img)) MarkHung(img.PixelWidth, img.PixelHeight, fromClipboard: true);
         }
         catch (Exception e) { Diag.Log("剪贴板读取失败：" + e.Message); }
+    }
+
+    /// <summary>
+    /// 一次截图会连发好几条 WM_CLIPBOARDUPDATE（先放位图，随后再补 PNG 等格式），
+    /// 每条都立刻去读就会把同一张图挂两遍。等剪贴板安静下来再读，只读一次。
+    /// </summary>
+    private void ArmClipboardRead()
+    {
+        _clipDebounce ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+        _clipDebounce.Stop();
+        _clipDebounce.Tick -= OnClipboardTick;
+        _clipDebounce.Tick += OnClipboardTick;
+        _clipDebounce.Start();
+    }
+
+    private void OnClipboardTick(object? sender, EventArgs e)
+    {
+        _clipDebounce?.Stop();
+        OnClipboardChanged();
+    }
+
+    /// <summary>
+    /// 这张图和刚挂上的是不是同一次截图。同一张截图既会进剪贴板、又可能落盘，
+    /// 系统还可能把同一张图往剪贴板连写两次：真实像素尺寸相同且落在时间窗内
+    /// （同来源 1.5 秒、跨来源 5 秒）就认作同一次。
+    /// 注意比的是原图尺寸，不是 LoadThumbnail 出来的 320 宽缩略图。
+    /// </summary>
+    private bool IsSameShot(int w, int h, bool fromClipboard)
+    {
+        if (_lastHang is not { } last) return false;
+        double window = last.fromClipboard == fromClipboard ? 1.5 : 5.0;
+        return (DateTime.Now - last.t).TotalSeconds < window && last.w == w && last.h == h;
+    }
+
+    private void MarkHung(int w, int h, bool fromClipboard)
+        => _lastHang = (DateTime.Now, w, h, fromClipboard);
+
+    /// <summary>只读图片文件头拿真实像素尺寸（LoadThumbnail 会把图缩到 320 宽，不能拿来比）。</summary>
+    private static (int W, int H)? TryGetPixelSize(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var dec = BitmapDecoder.Create(fs,
+                BitmapCreateOptions.DelayCreation | BitmapCreateOptions.IgnoreImageCache,
+                BitmapCacheOption.None);
+            var frame = dec.Frames[0];
+            return (frame.PixelWidth, frame.PixelHeight);
+        }
+        catch { return null; }
     }
 
     /// <summary>微信/QQ 截图刚写完剪贴板时可能还被占用，重试几次再放弃。</summary>
@@ -751,5 +809,6 @@ internal sealed class LineWindow : Window
         _breezeTimer?.Stop();
         _hideTimer?.Stop();
         _peekTimer?.Stop();
+        _clipDebounce?.Stop();
     }
 }
